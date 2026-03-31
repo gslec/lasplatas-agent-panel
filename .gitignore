@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+lasplatas_auth.json
+lasplatas_sessions/
+saldos_resultado.json

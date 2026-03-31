@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LasPlatas Panel</title>
+  <style>
+    :root {
+      --bg: #f3f7fc;
+      --card: rgba(255, 255, 255, 0.9);
+      --card-border: rgba(159, 179, 206, 0.26);
+      --text: #10233f;
+      --muted: #60738f;
+      --primary: #1663d6;
+      --primary-dark: #0d4fae;
+      --accent: #69a7ff;
+      --success-bg: #ecfaf1;
+      --success-text: #17673a;
+      --error-bg: #fff0f0;
+      --error-text: #a22929;
+      --info-bg: #eef5ff;
+      --info-text: #1a4f9c;
+      --shadow-lg: 0 30px 70px rgba(16, 35, 63, 0.10);
+      --shadow-md: 0 18px 45px rgba(16, 35, 63, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(105, 167, 255, 0.18), transparent 26%),
+        radial-gradient(circle at bottom right, rgba(22, 99, 214, 0.14), transparent 22%),
+        linear-gradient(180deg, #edf3fb 0%, var(--bg) 45%, #f7faff 100%);
+      min-height: 100vh;
+    }
+
+    .shell {
+      width: min(1120px, calc(100% - 28px));
+      margin: 24px auto 36px;
+    }
+
+    .hero {
+      position: relative;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at top right, rgba(255, 255, 255, 0.18), transparent 24%),
+        linear-gradient(135deg, #0d2340 0%, #13345b 52%, #1663d6 100%);
+      color: #fff;
+      border-radius: 30px;
+      padding: 16px 16px 14px;
+      box-shadow: var(--shadow-lg);
+    }
+
+    .hero::before {
+      content: "";
+      position: absolute;
+      width: 220px;
+      height: 220px;
+      top: -90px;
+      right: -40px;
+      border-radius: 999px;
+      background: radial-gradient(circle, rgba(255,255,255,0.18), rgba(255,255,255,0));
+      pointer-events: none;
+    }
+
+    .hero-top {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-start;
+      position: relative;
+      z-index: 1;
+    }
+
+    .hero-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 18px;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      padding: 8px 12px;
+      border-radius: 999px;
+      font-size: 0.82rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      background: rgba(255, 255, 255, 0.14);
+      color: rgba(255, 255, 255, 0.94);
+      backdrop-filter: blur(10px);
+    }
+
+    .hero h1 {
+      margin: 8px 0 0;
+      font-size: clamp(1.7rem, 4vw, 2.6rem);
+      line-height: 1;
+      letter-spacing: -0.04em;
+    }
+
+    .profile {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 10px;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.12);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      backdrop-filter: blur(10px);
+    }
+
+    .avatar {
+      width: 34px;
+      height: 34px;
+      border-radius: 10px;
+      display: grid;
+      place-items: center;
+      font-size: 0.82rem;
+      font-weight: 800;
+      background: linear-gradient(135deg, #ffffff 0%, #dceaff 100%);
+      color: #12345d;
+    }
+
+    .profile-label {
+      font-size: 0.62rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: rgba(255, 255, 255, 0.70);
+    }
+
+    .profile-name {
+      margin-top: 2px;
+      font-size: 0.82rem;
+      font-weight: 700;
+      color: #fff;
+      word-break: break-word;
+    }
+
+    .hero-bottom {
+      position: relative;
+      z-index: 1;
+      margin-top: 10px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .status {
+      border-radius: 20px;
+      padding: 10px 12px;
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+    }
+
+    .status {
+      background: rgba(255, 255, 255, 0.12);
+      font-weight: 600;
+      line-height: 1.45;
+      color: #fff;
+    }
+
+    .status.info {
+      background: var(--info-bg);
+      color: var(--info-text);
+      border-color: rgba(150, 185, 239, 0.5);
+    }
+
+    .status.ok {
+      background: var(--success-bg);
+      color: var(--success-text);
+      border-color: rgba(161, 215, 179, 0.55);
+    }
+
+    .status.error {
+      background: var(--error-bg);
+      color: var(--error-text);
+      border-color: rgba(233, 173, 173, 0.55);
+    }
+
+    .balance-chip {
+      padding: 10px 12px;
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.14);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      color: #fff;
+      min-width: 120px;
+      text-align: right;
+    }
+
+    .balance-label {
+      display: block;
+      font-size: 0.62rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: rgba(255, 255, 255, 0.70);
+    }
+
+    .balance-value {
+      display: block;
+      margin-top: 3px;
+      font-size: 1rem;
+      font-weight: 800;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .content {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 22px;
+      margin-top: 24px;
+    }
+
+    .card {
+      position: relative;
+      overflow: hidden;
+      background: var(--card);
+      border: 1px solid var(--card-border);
+      border-radius: 24px;
+      padding: 24px;
+      box-shadow: var(--shadow-md);
+      backdrop-filter: blur(18px);
+      transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+    }
+
+    .card:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 24px 56px rgba(16, 35, 63, 0.10);
+      border-color: rgba(120, 160, 212, 0.36);
+    }
+
+    .card::after {
+      content: "";
+      position: absolute;
+      width: 150px;
+      height: 150px;
+      right: -54px;
+      top: -54px;
+      border-radius: 999px;
+      background: radial-gradient(circle, rgba(22, 99, 214, 0.10), rgba(22, 99, 214, 0));
+      pointer-events: none;
+    }
+
+    .card-top {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: flex-start;
+    }
+
+    .icon-badge {
+      width: 56px;
+      height: 56px;
+      display: grid;
+      place-items: center;
+      border-radius: 18px;
+      background: linear-gradient(135deg, #edf4ff 0%, #dfeeff 100%);
+      color: var(--primary);
+      flex: 0 0 auto;
+    }
+
+    .icon-badge svg {
+      width: 26px;
+      height: 26px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .card-kicker {
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      font-weight: 800;
+    }
+
+    .card h2 {
+      margin: 10px 0 10px;
+      font-size: 1.65rem;
+      line-height: 1.05;
+      letter-spacing: -0.03em;
+    }
+
+    .card p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.55;
+    }
+
+    .button-row {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 22px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      min-height: 48px;
+      padding: 0 18px;
+      border-radius: 16px;
+      text-decoration: none;
+      font-size: 0.98rem;
+      font-weight: 700;
+      transition: transform 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
+    }
+
+    .button:hover {
+      transform: translateY(-1px);
+    }
+
+    .button-primary {
+      background: linear-gradient(135deg, var(--primary) 0%, #3b86f2 100%);
+      color: #fff;
+      box-shadow: 0 14px 28px rgba(22, 99, 214, 0.18);
+    }
+
+    .button-primary:hover {
+      background: linear-gradient(135deg, var(--primary-dark) 0%, #2b74df 100%);
+    }
+
+    .button-ghost {
+      background: rgba(255, 255, 255, 0.14);
+      color: #fff;
+      border: 1px solid rgba(255, 255, 255, 0.20);
+      box-shadow: none;
+    }
+
+    .button-ghost:hover {
+      background: rgba(255, 255, 255, 0.20);
+    }
+
+    .button-danger {
+      background: rgba(255, 255, 255, 0.10);
+      color: #fff;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      box-shadow: none;
+    }
+
+    .button-danger:hover {
+      background: rgba(255, 255, 255, 0.16);
+    }
+
+    .button svg {
+      width: 18px;
+      height: 18px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    @media (max-width: 940px) {
+      .content {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .shell {
+        width: min(100% - 18px, 1120px);
+        margin: 10px auto 16px;
+      }
+
+      .hero,
+      .card {
+        border-radius: 20px;
+        padding: 16px;
+      }
+
+      .hero h1 {
+        margin: 4px 0 0;
+        font-size: 1.55rem;
+      }
+
+      .eyebrow {
+        padding: 6px 10px;
+        font-size: 0.72rem;
+      }
+
+      .profile {
+        padding: 6px 8px;
+        border-radius: 12px;
+        gap: 8px;
+      }
+
+      .avatar {
+        width: 30px;
+        height: 30px;
+        border-radius: 9px;
+        font-size: 0.74rem;
+      }
+
+      .profile-label {
+        font-size: 0.58rem;
+      }
+
+      .profile-name {
+        font-size: 0.76rem;
+      }
+
+      .hero-bottom {
+        margin-top: 8px;
+      }
+
+      .status {
+        padding: 8px 10px;
+        border-radius: 14px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <section class="hero">
+      <div class="hero-top">
+        <div>
+          <div class="eyebrow">Panel</div>
+          <h1>LasPlatas</h1>
+          <div class="hero-actions">
+            <button class="button button-ghost" id="refreshBtn" type="button">
+              Refresh
+              <svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0 2 5.5"></path><path d="M20 4v7h-7"></path></svg>
+            </button>
+            <button class="button button-danger" id="logoutBtn" type="button">
+              Cerrar sesión
+              <svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><path d="M16 17l5-5-5-5"></path><path d="M21 12H9"></path></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="profile">
+          <div class="avatar" id="avatar">LP</div>
+          <div>
+            <div class="profile-label">Cuenta</div>
+            <div class="profile-name" id="accountName">Cargando...</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="hero-bottom">
+        <div class="status info" id="status">Cargando información...</div>
+        <div class="balance-chip">
+          <span class="balance-label">Saldo</span>
+          <span class="balance-value" id="playerBalance">$0.00</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="content">
+      <article class="card">
+        <div class="card-top">
+          <div>
+            <div class="card-kicker">Saldos</div>
+            <h2>Consultar saldos</h2>
+            <p>Top 10 de usuarios.</p>
+          </div>
+          <div class="icon-badge" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <path d="M3 3v18h18"></path>
+              <path d="M7 14l3-3 3 2 4-5"></path>
+            </svg>
+          </div>
+        </div>
+
+        <div class="button-row">
+          <a class="button button-primary" href="/saldos">
+            Abrir saldos
+            <svg viewBox="0 0 24 24"><path d="M5 12h14"></path><path d="M13 5l7 7-7 7"></path></svg>
+          </a>
+        </div>
+      </article>
+
+      <article class="card">
+        <div class="card-top">
+          <div>
+            <div class="card-kicker">Transferencias</div>
+            <h2>Transferir saldo</h2>
+            <p>Buscar usuario y transferir.</p>
+          </div>
+          <div class="icon-badge" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <path d="M4 7h11"></path>
+              <path d="M11 3l4 4-4 4"></path>
+              <path d="M20 17H9"></path>
+              <path d="M13 13l-4 4 4 4"></path>
+            </svg>
+          </div>
+        </div>
+
+        <div class="button-row">
+          <a class="button button-primary" href="/transferir">
+            Abrir transferencias
+            <svg viewBox="0 0 24 24"><path d="M5 12h14"></path><path d="M13 5l7 7-7 7"></path></svg>
+          </a>
+        </div>
+      </article>
+
+    </section>
+  </div>
+
+  <script>
+    const INIT_CACHE_KEY = "lasplatas_init_cache";
+
+    async function api(path) {
+      const response = await fetch(path);
+      const text = await response.text();
+      const data = text ? JSON.parse(text) : {};
+      if (!response.ok) {
+        throw new Error(data.error || `Error ${response.status}`);
+      }
+      return data;
+    }
+
+    function saveInitCache(payload) {
+      localStorage.setItem(INIT_CACHE_KEY, JSON.stringify(payload));
+    }
+
+    function loadInitCache() {
+      try {
+        const raw = localStorage.getItem(INIT_CACHE_KEY);
+        return raw ? JSON.parse(raw) : null;
+      } catch {
+        return null;
+      }
+    }
+
+    function initials(name) {
+      if (!name) return "LP";
+      return String(name).trim().slice(0, 2).toUpperCase();
+    }
+
+    function renderInitData(data, kind = "ok") {
+      const statusEl = document.getElementById("status");
+      const accountNameEl = document.getElementById("accountName");
+      const avatarEl = document.getElementById("avatar");
+      const playerBalanceEl = document.getElementById("playerBalance");
+
+      const username = data.username || "Sin cuenta";
+      const balance = data.playerBalance && typeof data.playerBalance.amount === "number"
+        ? data.playerBalance.amount
+        : 0;
+      const currency = data.playerBalance && data.playerBalance.currency
+        ? data.playerBalance.currency
+        : "USD";
+
+      accountNameEl.textContent = username;
+      avatarEl.textContent = initials(username);
+      playerBalanceEl.textContent = `${currency === "USD" ? "$" : ""}${balance.toFixed(2)}`;
+      statusEl.textContent = "Listo.";
+      statusEl.className = `status ${kind}`.trim();
+    }
+
+    async function initialize() {
+      const refreshBtn = document.getElementById("refreshBtn");
+      const logoutBtn = document.getElementById("logoutBtn");
+      const cached = loadInitCache();
+      if (cached) {
+        renderInitData(cached, "ok");
+      }
+
+      try {
+        const data = await api("/api/init");
+        saveInitCache(data);
+        renderInitData(data, "ok");
+      } catch (error) {
+        if (!cached) {
+          const statusEl = document.getElementById("status");
+          statusEl.textContent = error.message;
+          statusEl.className = "status error";
+        }
+      }
+
+      refreshBtn.addEventListener("click", async () => {
+        refreshBtn.disabled = true;
+        try {
+          const data = await fetch("/api/refresh", { method: "POST" }).then(async (response) => {
+            const text = await response.text();
+            const payload = text ? JSON.parse(text) : {};
+            if (!response.ok) {
+              throw new Error(payload.error || `Error ${response.status}`);
+            }
+            return payload;
+          });
+          saveInitCache(data);
+          renderInitData(data, "ok");
+        } catch (error) {
+          const statusEl = document.getElementById("status");
+          statusEl.textContent = error.message;
+          statusEl.className = "status error";
+        } finally {
+          refreshBtn.disabled = false;
+        }
+      });
+
+      logoutBtn.addEventListener("click", async () => {
+        logoutBtn.disabled = true;
+        try {
+          await fetch("/api/logout", { method: "POST" });
+        } finally {
+          localStorage.removeItem(INIT_CACHE_KEY);
+          window.location.replace("/login");
+        }
+      });
+    }
+
+    initialize();
+  </script>
+</body>
+</html>
