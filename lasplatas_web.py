@@ -1,3 +1,4 @@
+import base64
 import json
 import secrets
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -15,6 +16,18 @@ BALANCE_WORKERS = 20
 ECUADOR_TZ = timezone(timedelta(hours=-5))
 SESSION_COOKIE_NAME = "lasplatas_sid"
 SESSION_MAX_AGE = 60 * 60 * 24 * 365
+MOBILE_USER_AGENT = (
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) "
+    "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1"
+)
+DEFAULT_BROWSER_HEADERS = {
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "en-US,en;q=0.9,es;q=0.8",
+    "User-Agent": MOBILE_USER_AGENT,
+    "sec-ch-ua": '"Chromium";v="146", "Not-A.Brand";v="24", "Google Chrome";v="146"',
+    "sec-ch-ua-mobile": "?1",
+    "sec-ch-ua-platform": '"iOS"',
+}
 
 PANEL_HTML_FILE = Path(__file__).with_name("lasplatas_panel.html")
 SALDOS_HTML_FILE = Path(__file__).with_name("lasplatas_saldos.html")
@@ -36,11 +49,20 @@ def empty_session_state():
         "top_rows": None,
         "recent_recharges": None,
         "player_balance": None,
+        "http": None,
     }
 
 
 def session_file(sid):
-    return SESSIONS_DIR / f"{sid}.json"
+    return SESSIONS_DIR / "{0}.json".format(sid)
+
+
+def load_session_credentials(path):
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data.get("username"), data.get("password")
+    except Exception:
+        return None, None
 
 
 def ensure_session_state(sid):
@@ -48,12 +70,9 @@ def ensure_session_state(sid):
         SESSION_STATES[sid] = empty_session_state()
         path = session_file(sid)
         if path.exists():
-            try:
-                data = json.loads(path.read_text(encoding="utf-8"))
-                SESSION_STATES[sid]["username"] = data.get("username")
-                SESSION_STATES[sid]["password"] = data.get("password")
-            except Exception:
-                pass
+            username, password = load_session_credentials(path)
+            SESSION_STATES[sid]["username"] = username
+            SESSION_STATES[sid]["password"] = password
     return SESSION_STATES[sid]
 
 
@@ -74,10 +93,19 @@ def has_credentials(session):
     return bool(session["username"] and session["password"])
 
 
-def invalidate_cache(session, *, keep_credentials=True):
+def get_http_session(session):
+    if session["http"] is None:
+        http = requests.Session()
+        http.headers.update(DEFAULT_BROWSER_HEADERS)
+        session["http"] = http
+    return session["http"]
+
+
+def invalidate_cache(session, keep_credentials=True):
     if not keep_credentials:
         session["username"] = None
         session["password"] = None
+        session["http"] = None
     session["jwt"] = None
     session["agent_id"] = None
     session["users"] = []
@@ -86,7 +114,7 @@ def invalidate_cache(session, *, keep_credentials=True):
     session["player_balance"] = None
 
 
-def configure_credentials(session, sid, username, password, *, persist=True):
+def configure_credentials(session, sid, username, password, persist=True):
     session["username"] = (username or "").strip()
     session["password"] = password or ""
     invalidate_cache(session, keep_credentials=True)
@@ -116,23 +144,66 @@ def get_agent_id_from_jwt(jwt):
     try:
         payload = jwt.split(".")[1]
         payload += "=" * (-len(payload) % 4)
-        data = json.loads(__import__("base64").urlsafe_b64decode(payload).decode("utf-8"))
+        data = json.loads(base64.urlsafe_b64decode(payload).decode("utf-8"))
         return find_first_value(data, ("userId", "id", "playerId", "sub"))
     except Exception:
         return None
+
+
+def ensure_browser_context(session):
+    http = get_http_session(session)
+    pages = (
+        "/",
+        "/agent/login",
+        "/agent/agent-transfer",
+        "/agent/agent-financial-transactions",
+    )
+    for path in pages:
+        try:
+            http.get(
+                "{0}{1}".format(BASE_URL, path),
+                headers={"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"},
+                timeout=20,
+            )
+        except Exception:
+            continue
+
+
+def parse_json_response(resp, invalid_credentials_message=None):
+    content_type = (resp.headers.get("Content-Type") or "").lower()
+    if "application/json" in content_type:
+        return resp.json()
+
+    text = resp.text or ""
+    lowered = text.lower()
+    if "just a moment" in lowered or "cf-chl" in lowered or "cloudflare" in lowered:
+        raise RuntimeError(
+            "Cloudflare está bloqueando el acceso desde este servidor. Prueba otra IP o usa un entorno con navegador real."
+        )
+    if invalid_credentials_message and ("unauthorized" in lowered or "login" in lowered):
+        raise PermissionError(invalid_credentials_message)
+    raise RuntimeError("La API devolvió HTML inesperado en lugar de JSON.")
 
 
 def login(session):
     if not has_credentials(session):
         raise PermissionError("No hay credenciales guardadas.")
 
-    resp = requests.post(
-        f"{BASE_URL}/api/auth/login",
+    http = get_http_session(session)
+    ensure_browser_context(session)
+
+    resp = http.post(
+        "{0}/api/auth/login".format(BASE_URL),
+        headers={
+            "Content-Type": "application/json",
+            "Origin": BASE_URL,
+            "Referer": "{0}/agent/login".format(BASE_URL),
+        },
         json={"login": session["username"], "password": session["password"]},
         timeout=20,
     )
     resp.raise_for_status()
-    data = resp.json()
+    data = parse_json_response(resp, invalid_credentials_message="Usuario o contraseña inválidos.")
     if not data.get("success") or not data.get("jwt"):
         raise PermissionError("Usuario o contraseña inválidos.")
     session["jwt"] = data["jwt"]
@@ -140,14 +211,19 @@ def login(session):
     return session["jwt"]
 
 
-def api_request(session, method, path, *, json_body=None, retry=True, timeout=20):
+def api_request(session, method, path, json_body=None, retry=True, timeout=20, referer_path="/agent/agent-transfer"):
     if not session["jwt"]:
         login(session)
 
-    resp = requests.request(
+    http = get_http_session(session)
+    resp = http.request(
         method,
-        f"{BASE_URL}{path}",
-        headers={"Authorization": f"Bearer {session['jwt']}"},
+        "{0}{1}".format(BASE_URL, path),
+        headers={
+            "Authorization": "Bearer {0}".format(session["jwt"]),
+            "Origin": BASE_URL,
+            "Referer": "{0}{1}".format(BASE_URL, referer_path),
+        },
         json=json_body,
         timeout=timeout,
     )
@@ -155,7 +231,15 @@ def api_request(session, method, path, *, json_body=None, retry=True, timeout=20
     if resp.status_code == 401 and retry:
         session["jwt"] = None
         login(session)
-        return api_request(session, method, path, json_body=json_body, retry=False, timeout=timeout)
+        return api_request(
+            session,
+            method,
+            path,
+            json_body=json_body,
+            retry=False,
+            timeout=timeout,
+            referer_path=referer_path,
+        )
 
     resp.raise_for_status()
     return resp
@@ -166,8 +250,8 @@ def ensure_agent_id(session):
         return int(session["agent_id"])
 
     try:
-        resp = api_request(session, "GET", "/api/player/details")
-        data = resp.json()
+        resp = api_request(session, "GET", "/api/player/details", referer_path="/agent/agent-transfer")
+        data = parse_json_response(resp)
         session["agent_id"] = find_first_value(data, ("userId", "id", "playerId"))
     except Exception:
         session["agent_id"] = None
@@ -182,8 +266,13 @@ def ensure_agent_id(session):
 
 
 def load_users(session):
-    resp = api_request(session, "GET", "/api/v2/hierarchy/get-direct-children-with-balance")
-    data = resp.json()
+    resp = api_request(
+        session,
+        "GET",
+        "/api/v2/hierarchy/get-direct-children-with-balance",
+        referer_path="/agent/agent-transfer",
+    )
+    data = parse_json_response(resp)
     session["users"] = data if isinstance(data, list) else []
     session["top_rows"] = None
     return session["users"]
@@ -197,10 +286,16 @@ def ensure_users(session):
 
 def get_balance(session, user_id):
     try:
-        resp = api_request(session, "GET", f"/api/v2/balance?userId={user_id}", timeout=15)
-        data = resp.json()
+        resp = api_request(
+            session,
+            "GET",
+            "/api/v2/balance?userId={0}".format(user_id),
+            timeout=15,
+            referer_path="/agent/agent-transfer",
+        )
+        data = parse_json_response(resp)
         cents = (data.get("balance") or 0) + (data.get("cashBalance") or 0)
-        return round(cents / 100, 2)
+        return round(cents / 100.0, 2)
     except Exception:
         return 0.0
 
@@ -215,13 +310,14 @@ def get_top_balances(session):
         futures = {
             executor.submit(get_balance, session, user["userId"]): user
             for user in users
+            if user.get("userId") is not None
         }
         for future in as_completed(futures):
             user = futures[future]
             balances.append(
                 {
-                    "username": user["username"],
-                    "userId": user["userId"],
+                    "username": user.get("username") or "",
+                    "userId": user.get("userId"),
                     "balance": future.result(),
                 }
             )
@@ -235,8 +331,8 @@ def get_player_balance(session):
     if session["player_balance"] is not None:
         return session["player_balance"]
 
-    resp = api_request(session, "GET", "/api/player/balance", timeout=20)
-    data = resp.json()
+    resp = api_request(session, "GET", "/api/player/balance", referer_path="/agent/agent-transfer")
+    data = parse_json_response(resp)
     cents = data.get("cash")
     if cents is None:
         cents = data.get("balance")
@@ -244,7 +340,7 @@ def get_player_balance(session):
         cents = 0
 
     session["player_balance"] = {
-        "amount": round(float(cents) / 100, 2),
+        "amount": round(float(cents) / 100.0, 2),
         "currency": data.get("currency") or "USD",
     }
     return session["player_balance"]
@@ -290,8 +386,15 @@ def get_recent_recharges(session):
     tomorrow = (now_ec + timedelta(days=1)).strftime("%Y-%m-%d")
     body = {"userId": source_user_id, "dateFrom": today, "dateTo": tomorrow}
 
-    resp = api_request(session, "POST", "/agent-api/transactions/financial", json_body=body, timeout=20)
-    rows = normalize_financial_rows(resp.json())
+    resp = api_request(
+        session,
+        "POST",
+        "/agent-api/transactions/financial",
+        json_body=body,
+        timeout=20,
+        referer_path="/agent/agent-financial-transactions",
+    )
+    rows = normalize_financial_rows(parse_json_response(resp))
 
     filtered = []
     for item in rows:
@@ -303,7 +406,7 @@ def get_recent_recharges(session):
             {
                 "fromUsername": item.get("fromUsername") or "",
                 "toUsername": item.get("toUsername") or "",
-                "amount": round((float(item.get("amount") or 0) / 100), 2),
+                "amount": round(float(item.get("amount") or 0) / 100.0, 2),
                 "dateTime": to_ecuador_datetime(item.get("dateTime") or ""),
                 "referenceId": item.get("referenceId") or "",
             }
@@ -322,7 +425,14 @@ def transfer(session, target_user_id, amount_usd):
         "targetUserId": int(target_user_id),
         "amount": amount_cents,
     }
-    resp = api_request(session, "POST", "/api/v2/balance/transfer", json_body=body)
+    resp = api_request(
+        session,
+        "POST",
+        "/api/v2/balance/transfer",
+        json_body=body,
+        referer_path="/agent/agent-transfer",
+    )
+    parse_json_response(resp)
     session["top_rows"] = None
     session["recent_recharges"] = None
     session["player_balance"] = None
@@ -399,10 +509,15 @@ class Handler(BaseHTTPRequestHandler):
         return json.loads(raw.decode("utf-8"))
 
     def _session_cookie_header(self, sid):
-        return ("Set-Cookie", f"{SESSION_COOKIE_NAME}={sid}; Path=/; Max-Age={SESSION_MAX_AGE}; SameSite=Lax")
+        return (
+            "Set-Cookie",
+            "{0}={1}; Path=/; Max-Age={2}; HttpOnly; SameSite=Lax".format(
+                SESSION_COOKIE_NAME, sid, SESSION_MAX_AGE
+            ),
+        )
 
     def _clear_session_cookie_header(self):
-        return ("Set-Cookie", f"{SESSION_COOKIE_NAME}=; Path=/; Max-Age=0; SameSite=Lax")
+        return ("Set-Cookie", "{0}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax".format(SESSION_COOKIE_NAME))
 
     def log_message(self, format, *args):
         return
@@ -435,10 +550,12 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
             if parsed.path == "/api/session":
-                self._send_json({
-                    "configured": bool(session and has_credentials(session)),
-                    "username": session["username"] if session else None,
-                })
+                self._send_json(
+                    {
+                        "configured": bool(session and has_credentials(session)),
+                        "username": session["username"] if session else None,
+                    }
+                )
                 return
 
             if parsed.path == "/api/top":
@@ -459,7 +576,9 @@ class Handler(BaseHTTPRequestHandler):
                 users = ensure_users(session)
                 query = parse_qs(parsed.query).get("q", [""])[0].strip().upper()
                 if query:
-                    users = [user for user in users if query in str(user.get("username", "")).upper()]
+                    users = [
+                        user for user in users if str(user.get("username", "")).upper().startswith(query)
+                    ]
                 self._send_json({"users": users[:20]})
                 return
 
@@ -468,8 +587,15 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"error": str(exc)}, status=401)
         except requests.HTTPError as exc:
             response = exc.response
-            detail = response.text if response is not None else str(exc)
-            status = response.status_code if response is not None else 500
+            if response is not None:
+                try:
+                    detail = parse_json_response(response)
+                except Exception:
+                    detail = response.text
+                status = response.status_code
+            else:
+                detail = str(exc)
+                status = 500
             self._send_json({"error": detail}, status=status)
         except Exception as exc:
             self._send_json({"error": str(exc)}, status=500)
@@ -527,8 +653,15 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"error": str(exc)}, status=401)
         except requests.HTTPError as exc:
             response = exc.response
-            detail = response.text if response is not None else str(exc)
-            status = response.status_code if response is not None else 500
+            if response is not None:
+                try:
+                    detail = parse_json_response(response)
+                except Exception:
+                    detail = response.text
+                status = response.status_code
+            else:
+                detail = str(exc)
+                status = 500
             self._send_json({"error": detail}, status=status)
         except Exception as exc:
             self._send_json({"error": str(exc)}, status=500)
@@ -538,7 +671,7 @@ def main():
     server = ThreadingHTTPServer(("0.0.0.0", 8000), Handler)
     print("Panel disponible en:")
     print("  http://127.0.0.1:8000")
-    print("  http://192.168.1.69:8000")
+    print("  http://0.0.0.0:8000")
     server.serve_forever()
 
 

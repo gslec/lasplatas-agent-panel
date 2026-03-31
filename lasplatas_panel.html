@@ -520,7 +520,7 @@
     const INIT_CACHE_KEY = "lasplatas_init_cache";
 
     async function api(path) {
-      const response = await fetch(path);
+      const response = await fetch(path, { credentials: "same-origin" });
       const text = await response.text();
       const data = text ? JSON.parse(text) : {};
       if (!response.ok) {
@@ -591,7 +591,7 @@
       refreshBtn.addEventListener("click", async () => {
         refreshBtn.disabled = true;
         try {
-          const data = await fetch("/api/refresh", { method: "POST" }).then(async (response) => {
+          const data = await fetch("/api/refresh", { method: "POST", credentials: "same-origin" }).then(async (response) => {
             const text = await response.text();
             const payload = text ? JSON.parse(text) : {};
             if (!response.ok) {
@@ -613,7 +613,7 @@
       logoutBtn.addEventListener("click", async () => {
         logoutBtn.disabled = true;
         try {
-          await fetch("/api/logout", { method: "POST" });
+          await fetch("/api/logout", { method: "POST", credentials: "same-origin" });
         } finally {
           localStorage.removeItem(INIT_CACHE_KEY);
           window.location.replace("/login");
